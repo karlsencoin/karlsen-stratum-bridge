@@ -1638,7 +1638,12 @@ impl ShareHandler {
                     format_uptime(now.duration_since(start))
                 ));
 
-                out.push(top);
+                out.push(top.clone());
+                let network_hashrate = crate::prom::last_network_hashrate();
+                if network_hashrate > 0 {
+                    out.push(format!("| Network Hashrate: {}", format_hashrate(network_hashrate as f64 / 1e9)));
+                    out.push(top);
+                }
                 info!("{}", out.join("\n"));
             }
         });

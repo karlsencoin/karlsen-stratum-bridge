@@ -778,8 +778,16 @@ pub fn record_new_job(worker: &WorkerContext) {
     }
 }
 
+static LAST_NETWORK_HASHRATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Last network hashrate estimate from the node, in hashes per second (0 until the first estimate).
+pub fn last_network_hashrate() -> u64 {
+    LAST_NETWORK_HASHRATE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Record network stats
 pub fn record_network_stats(hashrate: u64, block_count: u64, difficulty: f64) {
+    LAST_NETWORK_HASHRATE.store(hashrate, std::sync::atomic::Ordering::Relaxed);
     if let Some(gauge) = ESTIMATED_NETWORK_HASHRATE.get() {
         gauge.set(hashrate as f64);
     }
