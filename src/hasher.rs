@@ -192,6 +192,15 @@ fn diff_to_target_standard(diff: f64) -> BigUint {
     }
 }
 
+/// Convert a target to a stratum difficulty (Go bridge `TargetToDiff`): diff = maxTarget / target.
+pub fn target_to_diff(target: &BigUint) -> f64 {
+    use num_traits::{Num, ToPrimitive};
+    let max_target = <BigUint as Num>::from_str_radix(MAX_TARGET, 16).unwrap();
+    let t = target.to_f64().unwrap_or(0.0);
+    if t <= 0.0 { return 0.0; }
+    max_target.to_f64().unwrap_or(0.0) / t
+}
+
 /// Convert difficulty to hash value
 pub fn diff_to_hash(diff: f64) -> f64 {
     let hash_val = min_hash() * diff;

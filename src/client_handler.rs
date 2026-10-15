@@ -24,6 +24,17 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(20);
 
 static GLOBAL_NEXT_EXTRANONCE: AtomicI32 = AtomicI32::new(0);
 
+static SOLO_MINING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enable solo mining: miners receive the network difficulty and vardiff is not used.
+pub fn set_solo_mining(enabled: bool) {
+    SOLO_MINING.store(enabled, Ordering::Relaxed);
+}
+
+pub fn solo_mining() -> bool {
+    SOLO_MINING.load(Ordering::Relaxed)
+}
+
 pub struct ClientHandler {
     clients: Arc<Mutex<HashMap<i32, Arc<StratumContext>>>>,
     client_counter: AtomicI32,
@@ -268,6 +279,8 @@ impl ClientHandler {
 
             // Calculate target
             let big_diff = calculate_target(block.header.bits as u64);
+            // Solo mining: the share difficulty is the network difficulty of this template.
+            let min_diff = if solo_mining() { crate::hasher::target_to_diff(&big_diff) } else { min_diff };
             state.set_big_diff(big_diff);
 
             // Serialize header - now returns Hash type directly
@@ -572,6 +585,9 @@ impl ClientHandler {
 
                 // Calculate target
                 let big_diff = calculate_target(block.header.bits as u64);
+                let network_diff = crate::hasher::target_to_diff(&big_diff);
+                // Solo mining: the share difficulty is the network difficulty of this template.
+                let min_diff = if solo_mining() { network_diff } else { min_diff };
                 state.set_big_diff(big_diff);
 
                 // Serialize header - now returns Hash type directly
@@ -643,11 +659,12 @@ impl ClientHandler {
                     // Check for vardiff update
                     if let Some(mut stratum_diff) = state.stratum_diff() {
                         let current_diff = stratum_diff.diff_value;
-                        let mut var_diff = share_handler.get_client_vardiff(&client_clone);
+                        let mut var_diff =
+                            if solo_mining() { network_diff } else { share_handler.get_client_vardiff(&client_clone) };
 
                         // Recover from stale/recreated stats entries that can report 0.0 diff.
                         // Seed back to current state diff so UI/terminal does not stick at zero.
-                        if var_diff <= 0.0 && current_diff > 0.0 {
+                        if !solo_mining() && var_diff <= 0.0 && current_diff > 0.0 {
                             share_handler.set_client_vardiff(&client_clone, current_diff);
                             share_handler.start_client_vardiff(&client_clone);
                             var_diff = current_diff;
@@ -663,7 +680,9 @@ impl ClientHandler {
                             update_worker_difficulty(&WorkerContext::from_stratum(&instance_id, &client_clone, &remote_app), var_diff);
 
                             send_client_diff(&instance_id, &client_clone, &state, var_diff);
-                            share_handler.start_client_vardiff(&client_clone);
+                            if !solo_mining() {
+                                share_handler.start_client_vardiff(&client_clone);
+                            }
                         }
                     }
                 }

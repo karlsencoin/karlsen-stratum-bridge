@@ -134,6 +134,8 @@ fn log_bridge_configuration(config: &BridgeConfig) {
     tracing::info!("\tblock wait:      {:?}", config.global.block_wait_time);
     tracing::info!("\tprint stats:     {}", config.global.print_stats);
     tracing::info!("\tvar diff:        {}", config.global.var_diff);
+    tracing::info!("\tsolo mining:     {}", config.global.solo_mining);
+    tracing::info!("\ttestnet mining:  {}", config.global.testnet_mining);
     tracing::info!("\tshares per min:  {}", config.global.shares_per_min);
     tracing::info!("\tvar diff stats:  {}", config.global.var_diff_stats);
     tracing::info!("\tpow2 clamp:      {}", config.global.pow2_clamp);
@@ -234,6 +236,11 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     karlsen_stratum_bridge::share_handler::set_vardiff_min_diff(config.global.vardiff_min_diff);
+    karlsen_stratum_bridge::client_handler::set_solo_mining(config.global.solo_mining);
+    karlsen_stratum_bridge::default_client::set_testnet_mining(config.global.testnet_mining);
+    if config.global.solo_mining {
+        tracing::info!("Solo mining enabled: miners receive the network difficulty, vardiff is disabled");
+    }
 
     // Build the FishHash context before listeners start so the first share does not pay for it.
     {

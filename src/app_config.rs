@@ -46,6 +46,10 @@ pub struct GlobalConfig {
     pub full_dataset: bool,
     /// Lowest difficulty vardiff may assign. FishHash GPUs need sub-1 difficulties.
     pub vardiff_min_diff: f64,
+    /// Solo mining: send the network difficulty to miners instead of vardiff (Go bridge `solo_mining`).
+    pub solo_mining: bool,
+    /// Use `karlsentest:` as the default prefix for wallet addresses given without one (Go bridge `testnet_mining`).
+    pub testnet_mining: bool,
 }
 
 /// Bridge configuration (supports both single and multi-instance modes)
@@ -91,21 +95,42 @@ where
 {
     use serde::de::Error;
     let value: serde_yaml::Value = Deserialize::deserialize(deserializer)?;
+    parse_duration_value(&value).map_err(D::Error::custom)
+}
 
-    let ms = match value {
+/// Parse a duration given in milliseconds (number) or as a Go-style string ("500ms", "2s", "1m", "1500").
+fn parse_duration_value(v: &serde_yaml::Value) -> Result<Duration, String> {
+    match v {
         serde_yaml::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                i as u64
-            } else if let Some(f) = n.as_f64() {
-                f as u64
+            if let Some(i) = n.as_u64() {
+                Ok(Duration::from_millis(i))
+            } else if let Some(f) = n.as_f64().filter(|f| f.is_finite() && *f >= 0.0) {
+                Ok(Duration::from_millis(f as u64))
             } else {
-                return Err(D::Error::custom("duration must be a number"));
+                Err("duration must be a non-negative number of milliseconds".into())
             }
         }
-        _ => return Err(D::Error::custom("duration must be a number")),
-    };
-
-    Ok(Duration::from_millis(ms))
+        serde_yaml::Value::String(s) => {
+            let s = s.trim();
+            let (num, unit) = match s.find(|c: char| c.is_ascii_alphabetic()) {
+                Some(i) => (&s[..i], &s[i..]),
+                None => (s, "ms"),
+            };
+            let value: f64 = num.trim().parse().map_err(|_| format!("invalid duration '{s}'"))?;
+            if !value.is_finite() || value < 0.0 {
+                return Err(format!("invalid duration '{s}'"));
+            }
+            let ms = match unit {
+                "ms" => value,
+                "s" => value * 1000.0,
+                "m" => value * 60_000.0,
+                "h" => value * 3_600_000.0,
+                _ => return Err(format!("invalid duration unit in '{s}' (use ms, s, m or h)")),
+            };
+            Ok(Duration::from_millis(ms as u64))
+        }
+        _ => Err("duration must be a number (ms) or a string like \"2s\"".into()),
+    }
 }
 
 /// Deserialize an optional duration from milliseconds
@@ -115,24 +140,7 @@ where
 {
     use serde::de::Error;
     let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
-
-    if let Some(v) = value {
-        let ms = match v {
-            serde_yaml::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    i as u64
-                } else if let Some(f) = n.as_f64() {
-                    f as u64
-                } else {
-                    return Err(D::Error::custom("duration must be a number"));
-                }
-            }
-            _ => return Err(D::Error::custom("duration must be a number")),
-        };
-        Ok(Some(Duration::from_millis(ms)))
-    } else {
-        Ok(None)
-    }
+    value.map(|v| parse_duration_value(&v).map_err(D::Error::custom)).transpose()
 }
 
 /// Deserialize coinbase_tag_suffix, converting empty strings to None
@@ -205,6 +213,8 @@ impl Default for GlobalConfig {
             coinbase_tag_suffix: None,
             full_dataset: false,
             vardiff_min_diff: crate::share_handler::DEFAULT_VARDIFF_MIN_DIFF,
+            solo_mining: false,
+            testnet_mining: false,
         }
     }
 }

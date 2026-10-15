@@ -28,6 +28,12 @@ full_dataset: false
 # (difficulty 1.0 ~= 4.29 GH of work per share).
 vardiff_min_diff: 0.00001
 
+# Solo mining: miners receive the network difficulty instead of vardiff (every accepted share is a block).
+solo_mining: false
+
+# Use the `karlsentest:` prefix for wallet addresses sent without a prefix (testnet).
+testnet_mining: false
+
 instances:
   # GPU miners (KarlsenMiner, lolMiner, BzMiner, SRBMiner). Vardiff starts here and adjusts per worker.
   - stratum_port: ":5555"

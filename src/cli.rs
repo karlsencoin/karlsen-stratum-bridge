@@ -155,6 +155,10 @@ pub struct Cli {
     #[arg(long, value_parser = BoolishValueParser::new())]
     pub full_dataset: Option<bool>,
 
+    /// Solo mining: send the network difficulty to miners instead of vardiff.
+    #[arg(long, value_parser = BoolishValueParser::new())]
+    pub solo_mining: Option<bool>,
+
     #[arg(long)]
     pub prom_port: Option<String>,
 
@@ -222,6 +226,12 @@ pub fn apply_cli_overrides(config: &mut BridgeConfig, cli: &Cli) -> Result<(), a
     }
     if let Some(v) = cli.full_dataset {
         config.global.full_dataset = v;
+    }
+    if let Some(v) = cli.solo_mining {
+        config.global.solo_mining = v;
+    }
+    if cli.testnet {
+        config.global.testnet_mining = true;
     }
     if let Some(s) = cli.coinbase_tag_suffix.as_deref() {
         let s = s.trim();

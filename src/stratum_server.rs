@@ -186,8 +186,8 @@ async fn listen_and_serve_impl<T: KarlsenApiTrait + Send + Sync + 'static>(
         }),
     };
 
-    // Start vardiff thread if enabled
-    if config.var_diff {
+    // Start vardiff thread if enabled (never in solo mode: miners get the network difficulty)
+    if config.var_diff && !crate::client_handler::solo_mining() {
         let shares_per_min = if config.shares_per_min > 0 { config.shares_per_min } else { 20 };
         if let Some(rx) = shutdown_rx_for_bg.as_ref().cloned() {
             share_handler.start_vardiff_thread_with_shutdown(shares_per_min, config.var_diff_stats, config.pow2_clamp, rx);

@@ -11,6 +11,13 @@ use std::sync::{Arc, LazyLock};
 static BIG_JOB_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".*(BzMiner|IceRiverMiner).*").unwrap());
 
 /// Regex for matching wallet addresses
+static DEFAULT_TESTNET_PREFIX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Use `karlsentest:` instead of `karlsen:` when a miner sends a wallet address without a prefix.
+pub fn set_testnet_mining(enabled: bool) {
+    DEFAULT_TESTNET_PREFIX.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 static WALLET_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"karlsen(test|dev)?:([a-z0-9]{61}|[a-z0-9]{63})").unwrap());
 
 /// Default logger configuration
@@ -331,7 +338,8 @@ fn clean_wallet(input: &str) -> Result<String, Box<dyn std::error::Error + Send 
 
     // Try with karlsen: prefix if no recognized prefix
     if !input.starts_with("karlsen:") && !input.starts_with("karlsentest:") && !input.starts_with("karlsendev:") {
-        return clean_wallet(&format!("karlsen:{}", input));
+        let prefix = if DEFAULT_TESTNET_PREFIX.load(std::sync::atomic::Ordering::Relaxed) { "karlsentest" } else { "karlsen" };
+        return clean_wallet(&format!("{}:{}", prefix, input));
     }
 
     // Try regex match
