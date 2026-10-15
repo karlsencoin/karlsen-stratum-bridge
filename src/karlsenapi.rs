@@ -21,7 +21,11 @@ use tokio::sync::watch;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-const STRATUM_COINBASE_TAG_BYTES: &[u8] = b"RK-Stratum";
+/// Bridge identifier written into every coinbase. Same shape as the Go bridge
+/// (`'<miner app>' via <repo>_<version>`) so explorers such as KGI can show miner software and bridge version.
+const BRIDGE_ID: &str = concat!("karlsencoin/karlsen-stratum-bridge_v", env!("CARGO_PKG_VERSION"));
+const MAX_REMOTE_APP_LEN: usize = 64;
+const MAX_COINBASE_TAG_LEN: usize = 140;
 const MAX_COINBASE_TAG_SUFFIX_LEN: usize = 64;
 
 fn sanitize_coinbase_tag_suffix(suffix: &str) -> Option<String> {
@@ -46,13 +50,41 @@ fn sanitize_coinbase_tag_suffix(suffix: &str) -> Option<String> {
     if out.is_empty() { None } else { Some(out) }
 }
 
-fn build_coinbase_tag_bytes(suffix: Option<&str>) -> Vec<u8> {
-    let mut tag = STRATUM_COINBASE_TAG_BYTES.to_vec();
+/// Keep only printable ASCII (no quotes) from the miner-supplied app string, capped in length.
+fn sanitize_remote_app(app: &str) -> String {
+    app.chars().filter(|c| c.is_ascii_graphic() || *c == ' ').filter(|c| *c != '\'').take(MAX_REMOTE_APP_LEN).collect::<String>().trim().to_string()
+}
+
+fn build_coinbase_tag_bytes(remote_app: &str, suffix: Option<&str>) -> Vec<u8> {
+    let app = sanitize_remote_app(remote_app);
+    let mut tag = if app.is_empty() { BRIDGE_ID.as_bytes().to_vec() } else { format!("'{app}' via {BRIDGE_ID}").into_bytes() };
     if let Some(suffix) = suffix.and_then(sanitize_coinbase_tag_suffix) {
         tag.push(b'/');
         tag.extend_from_slice(suffix.as_bytes());
     }
+    // Coinbase payload is capped at 204 bytes by consensus; ~54 are taken by blue score,
+    // subsidy and the reward script, so keep the extra data well inside the rest.
+    tag.truncate(MAX_COINBASE_TAG_LEN);
     tag
+}
+
+#[cfg(test)]
+mod coinbase_tag_tests {
+    use super::*;
+
+    #[test]
+    fn tag_matches_go_bridge_shape() {
+        let tag = String::from_utf8(build_coinbase_tag_bytes("KarlsenMiner/1.0.0", None)).unwrap();
+        assert_eq!(tag, format!("'KarlsenMiner/1.0.0' via {BRIDGE_ID}"));
+    }
+
+    #[test]
+    fn tag_is_sanitized_and_bounded() {
+        let tag = build_coinbase_tag_bytes(&"x'\u{7}".repeat(200), Some(&"y".repeat(200)));
+        assert!(tag.len() <= MAX_COINBASE_TAG_LEN);
+        assert!(!tag[1..].contains(&b'\'') || tag.starts_with(b"'"));
+        assert!(tag.iter().all(|b| b.is_ascii_graphic() || *b == b' '));
+    }
 }
 
 struct BlockSubmitGuard {
@@ -134,7 +166,7 @@ pub struct KarlsenApi {
     client: Arc<GrpcClient>,
     notification_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<Notification>>>>,
     connected: Arc<Mutex<bool>>,
-    coinbase_tag: Vec<u8>,
+    coinbase_tag_suffix: Option<String>,
 }
 
 impl KarlsenApi {
@@ -269,8 +301,7 @@ impl KarlsenApi {
             Arc::new(Mutex::new(Some(rx)))
         };
 
-        let coinbase_tag = build_coinbase_tag_bytes(coinbase_tag_suffix.as_deref());
-        let api = Arc::new(Self { client, notification_rx, connected: Arc::new(Mutex::new(true)), coinbase_tag });
+        let api = Arc::new(Self { client, notification_rx, connected: Arc::new(Mutex::new(true)), coinbase_tag_suffix });
 
         // Start network stats thread
         let api_clone = Arc::clone(&api);
@@ -648,7 +679,8 @@ impl KarlsenApi {
     }
 
     /// Get block template for a client
-    pub async fn get_block_template(&self, wallet_addr: &str, _remote_app: &str, _canxium_addr: &str) -> Result<Block> {
+    pub async fn get_block_template(&self, wallet_addr: &str, remote_app: &str, _canxium_addr: &str) -> Result<Block> {
+        let coinbase_tag = build_coinbase_tag_bytes(remote_app, self.coinbase_tag_suffix.as_deref());
         // Retry up to 3 times if we get "Odd number of digits" error
         // This error can occur if the block template has malformed hash fields
         let max_retries = 3;
@@ -662,7 +694,7 @@ impl KarlsenApi {
             // Request block template using RPC client wrapper
             let response = match self
                 .client
-                .get_block_template_call(None, GetBlockTemplateRequest::new(address, self.coinbase_tag.clone()))
+                .get_block_template_call(None, GetBlockTemplateRequest::new(address, coinbase_tag.clone()))
                 .await
             {
                 Ok(r) => r,
@@ -947,10 +979,10 @@ impl KarlsenApiTrait for KarlsenApi {
     async fn get_block_template(
         &self,
         wallet_addr: &str,
-        _remote_app: &str,
+        remote_app: &str,
         _canxium_addr: &str,
     ) -> Result<Block, Box<dyn std::error::Error + Send + Sync>> {
-        KarlsenApi::get_block_template(self, wallet_addr, "", "").await.map_err(|e| {
+        KarlsenApi::get_block_template(self, wallet_addr, remote_app, "").await.map_err(|e| {
             let error_msg = e.to_string();
             Box::new(std::io::Error::other(error_msg)) as Box<dyn std::error::Error + Send + Sync>
         })
