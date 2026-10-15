@@ -1,0 +1,72 @@
+[package]
+name = "karlsen-stratum-bridge"
+description = "Karlsen Stratum Bridge - connects Stratum miners to a karlsend node"
+version = "1.0.0-dev"
+edition = "2024"
+rust-version = "1.88.0"
+authors = ["Karlsen developers"]
+license = "ISC"
+repository = "https://github.com/karlsencoin/karlsen-stratum-bridge"
+publish = false
+
+# Derived from kaspanet/rusty-kaspa `bridge/` (ISC). See UPSTREAM_REV and LICENSE.
+
+[dependencies]
+# Karlsen node crates, pinned to a rusty-karlsen release tag.
+karlsen-consensus-core = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-hashes = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-pow = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-addresses = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-rpc-core = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-grpc-client = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-notify = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-core = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-utils = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+karlsen-alloc = { git = "https://github.com/karlsencoin/rusty-karlsen", tag = "v3.3.1" }
+
+tokio = { version = "1.33.0", features = ["full"] }
+serde = { version = "1.0.190", features = ["derive", "rc"] }
+serde_json = "1.0.107"
+thiserror = "1.0.50"
+hex = { version = "0.4.3", features = ["serde"] }
+num-traits = "0.2.17"
+async-trait = "0.1.74"
+once_cell = "1.18.0"
+futures-util = { version = "0.3.29", default-features = false, features = ["alloc"] }
+parking_lot = "0.12.1"
+regex = "1.10.2"
+uuid = { version = "1.16.0", features = ["v4", "fast-rng", "serde"] }
+clap = { version = "4.4.7", features = ["derive", "string", "cargo"] }
+chrono = "0.4.31"
+dirs = "5.0.1"
+
+anyhow = "1.0"
+tracing = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+blake2 = "0.10"
+num-bigint = "0.4"
+prometheus = "0.14.0"
+serde_yaml = "0.9"
+faster-hex = "0.1"
+include_dir = "0.7"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[dev-dependencies]
+rand = "0.8.5"
+tokio-test = "0.4"
+
+[[bin]]
+name = "karlsen-stratum-bridge"
+path = "src/main.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("rkstratum_cpu_miner"))'] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

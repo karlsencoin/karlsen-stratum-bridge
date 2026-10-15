@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN: karlsen-stratum-bridge
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04 # older glibc so the binary also runs on HiveOS / Ubuntu 22.04 rigs
+            exe: ""
+          - name: windows-x64
+            os: windows-latest
+            exe: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y --no-progress
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Run tests
+        run: cargo test --release --locked
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          [[ "${GITHUB_REF}" == refs/tags/* ]] || VERSION="dev-${GITHUB_SHA::7}"
+          DIR="${BIN}-${VERSION}-${{ matrix.name }}"
+          mkdir -p "dist/${DIR}"
+          cp "target/release/${BIN}${{ matrix.exe }}" config.yaml LICENSE "dist/${DIR}/"
+          cd dist
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z a "${DIR}.zip" "${DIR}" > /dev/null
+          else
+            tar -czf "${DIR}.tar.gz" "${DIR}"
+            # HiveOS custom miner layout: top-level folder named after the package
+            mkdir -p hive && cp -r "${DIR}" "hive/${BIN}"
+            tar -czf "${DIR}-hiveos.tar.gz" -C hive "${BIN}"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}-${{ matrix.name }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.tar.gz

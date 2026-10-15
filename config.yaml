@@ -1,0 +1,36 @@
+# Karlsen Stratum Bridge configuration
+# Add more entries under `instances` to serve several ports from one process.
+# All instances share the same Karlsen node (karlsend_address)
+#
+# NOTE: Comments in this file will be lost if you update the configuration
+# through the web dashboard. The web UI uses serde_yaml which does not
+# preserve comments. For production, consider keeping a backup or using
+# version control.
+
+karlsend_address: "127.0.0.1:42110"
+block_wait_time: 1000
+print_stats: true
+log_to_file: true
+health_check_port: ""
+web_dashboard_port: ":3030"
+var_diff: true
+shares_per_min: 30
+var_diff_stats: true
+pow2_clamp: true
+extranonce_size: 2
+coinbase_tag_suffix: ""
+
+# Share validation uses the FishHash light cache (~75 MB) by default.
+# Set to true on large pools to build the full dataset (~4.8 GB RAM, slow startup) for faster validation.
+full_dataset: false
+
+# Lowest difficulty vardiff may assign. FishHash GPUs need sub-1 difficulties
+# (difficulty 1.0 ~= 4.29 GH of work per share).
+vardiff_min_diff: 0.00001
+
+instances:
+  # GPU miners (KarlsenMiner, lolMiner, BzMiner, SRBMiner). Vardiff starts here and adjusts per worker.
+  - stratum_port: ":5555"
+    min_share_diff: 1
+    prom_port: ":2114"
+    log_to_file: true
