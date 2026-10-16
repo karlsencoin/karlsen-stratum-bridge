@@ -148,7 +148,14 @@ fn log_bridge_configuration(config: &BridgeConfig) {
             tracing::info!("\t--- Instance {} ---", idx + 1);
         }
         tracing::info!("\t  stratum:       {}", instance.stratum_port);
-        tracing::info!("\t  min diff:      {}", instance.min_share_diff);
+        if instance.min_share_diff > 0.0 {
+            tracing::info!("\t  min diff:      {}", instance.min_share_diff);
+        } else {
+            tracing::info!(
+                "\t  min diff:      0 (using default {})",
+                karlsen_stratum_bridge::stratum_server::DEFAULT_MIN_SHARE_DIFF
+            );
+        }
         if let Some(ref prom_port) = instance.prom_port {
             tracing::info!("\t  prom:          {}", prom_port);
         }

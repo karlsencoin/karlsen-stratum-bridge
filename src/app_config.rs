@@ -223,7 +223,7 @@ impl Default for InstanceConfig {
     fn default() -> Self {
         Self {
             stratum_port: ":5555".to_string(),
-            min_share_diff: 1.0,
+            min_share_diff: 0.0, // 0 => stratum_server::DEFAULT_MIN_SHARE_DIFF (0.1)
             prom_port: None,
             log_to_file: None,
             block_wait_time: None,

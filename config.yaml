@@ -75,8 +75,8 @@ solo_mining: false
 # For reference: difficulty 1 = about 4.29 GH of work per share, so a
 # ~170 MH/s rig finds about 2-3 shares per minute at difficulty 1.
 #
-# If set to 0, the minimum difficulty defaults to 1.
-min_share_diff: 1
+# If set to 0, the minimum difficulty will default to 0.1
+min_share_diff: 0
 
 # var_diff: if true, enables the auto-adjusting variable share diff mechanism.
 # Starts with the value defined by the 'min_share_diff' setting, then

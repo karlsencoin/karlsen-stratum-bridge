@@ -12,6 +12,9 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
+/// Starting share difficulty used when `min_share_diff` is 0 (Go bridge default).
+pub const DEFAULT_MIN_SHARE_DIFF: f64 = 0.1;
+
 pub struct BridgeConfig {
     pub instance_id: String, // Instance identifier for logging (e.g., "Instance 1", "Instance 2")
     pub stratum_port: String,
@@ -83,8 +86,9 @@ async fn listen_and_serve_impl<T: KarlsenApiTrait + Send + Sync + 'static>(
     if config.pow2_clamp && min_diff > 0.0 {
         min_diff = 2_f64.powi((min_diff.log2().floor()) as i32);
     }
+    // 0 (or unset) means "lowest sensible start", same as the Go bridge.
     if min_diff <= 0.0 {
-        min_diff = 1.0;
+        min_diff = DEFAULT_MIN_SHARE_DIFF;
     }
 
     // Extranonce size is now auto-detected per client based on miner type
