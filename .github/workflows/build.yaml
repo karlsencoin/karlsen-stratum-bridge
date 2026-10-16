@@ -60,13 +60,22 @@ jobs:
           DIR="${BIN}-${VERSION}-${{ matrix.name }}"
           mkdir -p "dist/${DIR}"
           cp "target/release/${BIN}${{ matrix.exe }}" config.yaml LICENSE "dist/${DIR}/"
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            cp packaging/linux/run.sh packaging/linux/karlsen-stratum-bridge.service "dist/${DIR}/"
+            chmod +x "dist/${DIR}/${BIN}" "dist/${DIR}/run.sh"
+          fi
           cd dist
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             7z a "${DIR}.zip" "${DIR}" > /dev/null
           else
             tar -czf "${DIR}.tar.gz" "${DIR}"
-            # HiveOS custom miner layout: top-level folder named after the package
-            mkdir -p hive && cp -r "${DIR}" "hive/${BIN}"
+            # HiveOS custom miner layout: top-level folder named after CUSTOM_NAME,
+            # containing the binary, config.yaml and the h-*.sh hooks.
+            mkdir -p "hive/${BIN}"
+            cp "${DIR}/${BIN}" "${DIR}/config.yaml" "${DIR}/LICENSE" "hive/${BIN}/"
+            cp ../packaging/hiveos/* "hive/${BIN}/"
+            sed -i "s/__VERSION__/${VERSION#v}/" "hive/${BIN}/h-manifest.conf"
+            chmod +x "hive/${BIN}/${BIN}" hive/${BIN}/h-*.sh
             tar -czf "${DIR}-hiveos.tar.gz" -C hive "${BIN}"
           fi
 

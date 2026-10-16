@@ -1,42 +1,174 @@
+# =============================================================================
 # Karlsen Stratum Bridge configuration
-# Add more entries under `instances` to serve several ports from one process.
-# All instances share the same Karlsen node (karlsend_address)
+# =============================================================================
+# The bridge looks for this file in the current directory first, then next to
+# the executable. Use `--config <path>` to load a different file.
 #
-# NOTE: Comments in this file will be lost if you update the configuration
-# through the web dashboard. The web UI uses serde_yaml which does not
-# preserve comments. For production, consider keeping a backup or using
-# version control.
+# Every setting can also be given on the command line, e.g.
+#   karlsen-stratum-bridge --stratum-port :5555 --solo-mining true
+# Run `karlsen-stratum-bridge --help` for the full list.
+#
+# Config files from the Go bridge (v2.x) are accepted as they are.
+#
+# NOTE: comments in this file are lost if you save the configuration from the
+# web dashboard (it rewrites the file). Keep a copy if you use that feature.
 
-karlsend_address: "127.0.0.1:42110"
-block_wait_time: 1000
-print_stats: true
-log_to_file: true
-health_check_port: ""
-web_dashboard_port: ":3030"
-var_diff: true
-shares_per_min: 30
-var_diff_stats: true
-pow2_clamp: true
-extranonce_size: 2
-coinbase_tag_suffix: ""
+# -----------------------------------------------------------------------------
+# Node connection
+# -----------------------------------------------------------------------------
 
-# Share validation uses the FishHash light cache (~75 MB) by default.
-# Set to true on large pools to build the full dataset (~4.8 GB RAM, slow startup) for faster validation.
-full_dataset: false
+# karlsend_address: address/port of the gRPC server of karlsend.
+# Default ports: 42110 (mainnet), 42210 (testnet), 42610 (devnet).
+# The node must be fully synced; the bridge waits for sync before it opens the
+# stratum port.
+# For a list of public nodes, run `nslookup mainnet-dnsseed-1.karlsencoin.com`
+# Uncomment to use a public node:
+# karlsend_address: 46.17.104.200:42110
+# karlsend_address: 51.210.116.181:42110
+karlsend_address: 127.0.0.1:42110
+#karlsend_address: localhost:42210
 
-# Lowest difficulty vardiff may assign. FishHash GPUs need sub-1 difficulties
-# (difficulty 1.0 ~= 4.29 GH of work per share).
-vardiff_min_diff: 0.00001
-
-# Solo mining: miners receive the network difficulty instead of vardiff (every accepted share is a block).
-solo_mining: false
-
-# Use the `karlsentest:` prefix for wallet addresses sent without a prefix (testnet).
+# testnet_mining: if true, wallet addresses that miners send without a prefix
+# get the `karlsentest:` prefix instead of `karlsen:`. Enable when mining on
+# testnet. (The `--testnet` command line flag does the same.)
 testnet_mining: false
 
-instances:
-  # GPU miners (KarlsenMiner, lolMiner, BzMiner, SRBMiner). Vardiff starts here and adjusts per worker.
-  - stratum_port: ":5555"
-    min_share_diff: 1
-    prom_port: ":2114"
-    log_to_file: true
+# -----------------------------------------------------------------------------
+# Stratum port
+# -----------------------------------------------------------------------------
+
+# stratum_port: the port that will be listening for incoming stratum traffic.
+# Note `:PORT` format is needed if not specifying a specific IP range.
+# Miners connect to stratum+tcp://<bridge-ip>:<port> with their karlsen:
+# address as the username (optionally `address.workername`).
+stratum_port: :5555
+
+# prom_port: if specified, Prometheus will serve stats on the port provided.
+# You can get the raw metrics using `curl http://localhost:{prom_port}/metrics`
+# Note `:PORT` format is needed if not specifying a specific IP range.
+# Leave empty ("") to disable.
+prom_port: :2114
+
+# -----------------------------------------------------------------------------
+# Difficulty
+# -----------------------------------------------------------------------------
+
+# solo_mining: if true, miners receive the network difficulty instead of the
+# variable difficulty (vardiff). Every accepted share is then a block.
+# Block rewards are the same in both modes (every block goes to your own node
+# and wallet); vardiff only adds frequent low-difficulty shares, which makes the
+# hashrate shown by the bridge accurate within minutes and lets you notice a
+# stopped rig quickly. With solo_mining the bridge hashrate is only an estimate
+# from found blocks and fluctuates a lot - read the real speed on the miner.
+solo_mining: false
+
+# min_share_diff: only accept shares of the specified difficulty (or higher)
+# from the miner(s). Higher values will reduce the number of shares submitted,
+# thereby reducing network traffic and server load, while lower values will
+# increase the number of shares submitted, thereby reducing the amount of time
+# needed for accurate hashrate measurements.
+#
+# If var_diff is enabled, min_share_diff is the starting difficulty and the
+# vardiff engine adjusts it per worker within a few minutes.
+# Decimals are allowed (e.g. 0.5). Ignored when solo_mining is true.
+#
+# For reference: difficulty 1 = about 4.29 GH of work per share, so a
+# ~170 MH/s rig finds about 2-3 shares per minute at difficulty 1.
+#
+# If set to 0, the minimum difficulty defaults to 1.
+min_share_diff: 1
+
+# var_diff: if true, enables the auto-adjusting variable share diff mechanism.
+# Starts with the value defined by the 'min_share_diff' setting, then
+# periodically checks whether each client is maintaining the shares/minute
+# target below, and sends an updated difficulty per client if necessary.
+# Changes are limited to 2x up / 0.5x down per adjustment.
+# Ignored when solo_mining is true.
+var_diff: true
+
+# shares_per_min: number of shares per minute the vardiff engine should target.
+# Higher values give more accurate hashrate readings and smoother vardiff,
+# at the cost of more network traffic. Lower values make vardiff behave more
+# erratically and the measured hashrate vary more.
+#
+# Example values and their resulting confidence levels:
+# 20 => 99%, 15 => 95%, 12 => 90%
+shares_per_min: 20
+
+# var_diff_stats: if true, print vardiff engine stats to the log.
+var_diff_stats: false
+
+# vardiff_min_diff: lowest difficulty vardiff may assign. Karlsen GPUs often
+# need difficulties below 1, so keep this small.
+vardiff_min_diff: 0.00001
+
+# pow2_clamp: if true, vardiff difficulties are rounded to powers of two
+# (..., 0.25, 0.5, 1, 2, 4, ...). Some ASIC firmwares need this; GPU miners
+# do not. Keep false unless a miner rejects non power-of-two difficulties.
+pow2_clamp: false
+
+# -----------------------------------------------------------------------------
+# Block templates
+# -----------------------------------------------------------------------------
+
+# block_wait_time: time to wait since last new block message from karlsend
+# before manually requesting a new block. Examples are '500ms', '3s', '1m', or
+# a plain number of milliseconds.
+block_wait_time: 2s
+
+# extranonce_size: size in bytes of extranonce, from 0 (no extranonce) to 3.
+# The bridge detects the miner type when it subscribes and picks the right
+# extranonce size automatically (GPU miners, IceRiver and Goldshell get 2
+# bytes, Bitmain gets 0), so this value is only kept for compatibility.
+extranonce_size: 1
+
+# coinbase_tag_suffix: optional text appended to the tag written in every
+# block's coinbase. The tag always contains the miner software and the bridge
+# version, e.g. `'KarlsenMiner/1.0.0' via karlsencoin/karlsen-stratum-bridge_v3.3.2`,
+# which explorers such as KGI show. Letters, digits, `.`, `_` and `-` only.
+coinbase_tag_suffix: ""
+
+# full_dataset: share validation uses the FishHash light cache (~75 MB RAM)
+# by default. Set to true on large pools to build the full dataset
+# (~4.8 GB RAM, slow startup) for faster share validation.
+full_dataset: false
+
+# -----------------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------------
+
+# print_stats: if true will print the worker stats table to the console every
+# 10 seconds; if false only workers joining/disconnecting, blocks found and
+# errors are printed.
+print_stats: true
+
+# log_to_file: if true, logs are appended to `bridge.log` next to the
+# executable (one JSON object per line). The console stats table is not
+# written to the file.
+log_to_file: true
+
+# web_dashboard_port: optional web dashboard with worker hashrate, shares,
+# difficulty and blocks, e.g. ":3030" -> http://<bridge-ip>:3030
+# Leave empty ("") to disable.
+web_dashboard_port: ""
+
+# health_check_port: optional HTTP health check endpoint for monitoring,
+# e.g. ":8080". Leave empty ("") to disable.
+health_check_port: ""
+
+# -----------------------------------------------------------------------------
+# Several stratum ports from one bridge (optional)
+# -----------------------------------------------------------------------------
+# Instead of stratum_port / min_share_diff / prom_port above, you can list
+# several ports. All of them share the same node connection. Per-port settings
+# override the global ones above. When `instances` is present, the top-level
+# stratum_port / min_share_diff / prom_port are ignored.
+#
+# instances:
+#   - stratum_port: ":5555"     # GPU rigs
+#     min_share_diff: 1
+#     prom_port: ":2114"
+#   - stratum_port: ":5556"     # large farms / ASICs
+#     min_share_diff: 4096
+#     prom_port: ":2115"
+#     shares_per_min: 12

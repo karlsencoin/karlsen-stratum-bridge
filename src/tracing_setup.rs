@@ -26,6 +26,50 @@ struct CustomFormatter {
     apply_colors: bool,
 }
 
+/// File log formatter: one JSON object per line, same shape as the Go bridge's `bridge.log`:
+/// `{"level":"info","ts":"2026-10-08T12:35:04+03:00","msg":"...","component":"share_handler"}`.
+/// The periodic console stats table and `[NODE]` status lines are console-only and are not written.
+struct JsonFileFormatter;
+
+static ANSI_RE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap());
+
+impl<S, N> FormatEvent<S, N> for JsonFileFormatter
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &tracing_subscriber::fmt::FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> fmt::Result {
+        let mut raw = String::new();
+        ctx.format_fields(Writer::new(&mut raw), event)?;
+        let msg = ANSI_RE.replace_all(&raw, "");
+        let msg = msg.trim();
+
+        // Console-only output: stats table, node status line, empty lines.
+        if msg.is_empty() || msg.starts_with("[NODE]") || msg.contains("| Worker") || msg.starts_with("+--") {
+            return Ok(());
+        }
+
+        let level = event.metadata().level().as_str().to_ascii_lowercase();
+        let target = event.metadata().target();
+        let component = target.rsplit("::").next().unwrap_or(target);
+        // Fixed key order (level, ts, msg, component) to match the Go bridge log.
+        let q = |v: &str| serde_json::to_string(v).unwrap_or_else(|_| "\"\"".to_string());
+        writeln!(
+            writer,
+            "{{\"level\":{},\"ts\":{},\"msg\":{},\"component\":{}}}",
+            q(&level),
+            q(&Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()),
+            q(msg),
+            q(component)
+        )
+    }
+}
+
 impl<S, N> FormatEvent<S, N> for CustomFormatter
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
@@ -330,16 +374,14 @@ pub(crate) fn init_tracing(
     // Note: The file_guard must be kept alive for the lifetime of the program
     // to ensure logs are flushed to the file
     let file_guard: Option<tracing_appender::non_blocking::WorkerGuard> = if should_log_to_file {
-        // Create log file with timestamp
-        use std::time::SystemTime;
-        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-        let log_filename = format!("RKStratum_{}.log", timestamp);
+        // Append to `bridge.log` next to the executable (Go bridge behavior). Falls back to the
+        // per-user app directory if the executable's folder is not writable.
+        let log_filename = "bridge.log";
         let log_dir = app_dirs::get_bridge_logs_dir();
-        let _ = std::fs::create_dir_all(&log_dir);
-        let log_path = log_dir.join(&log_filename);
+        let log_path = log_dir.join(log_filename);
 
         // Use tracing-appender for file logging
-        let file_appender = tracing_appender::rolling::never(&log_dir, &log_filename);
+        let file_appender = tracing_appender::rolling::never(&log_dir, log_filename);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
         let subscriber = tracing_subscriber::registry()
@@ -353,7 +395,7 @@ pub(crate) fn init_tracing(
                 tracing_subscriber::fmt::layer()
                     .with_writer(non_blocking)
                     .with_ansi(false)
-                    .event_format(CustomFormatter { apply_colors: false }),
+                    .event_format(JsonFileFormatter),
             );
 
         match tracing::subscriber::set_global_default(subscriber) {

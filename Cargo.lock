@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "karlsen-stratum-bridge"
-version = "3.3.1"
+version = "3.3.2"
 dependencies = [
  "anyhow",
  "async-trait",

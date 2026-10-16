@@ -1305,7 +1305,7 @@ impl ShareHandler {
             const WORKER_W: usize = 16;
             const INST_W: usize = 5;
             const HASH_W: usize = 11;
-            const DIFF_W: usize = 6;
+            const DIFF_W: usize = 8;
             const SPM_W: usize = 11;
             const TRND_W: usize = 4;
             const ACC_W: usize = 12;
@@ -1442,7 +1442,10 @@ impl ShareHandler {
                         {
                             total_worker_count += 1;
                         }
-                        let trend = if spm > *target_spm * 1.2 {
+                        let solo = crate::client_handler::solo_mining();
+                        let trend = if solo {
+                            "-"
+                        } else if spm > *target_spm * 1.2 {
                             "up"
                         } else if spm < *target_spm * 0.8 {
                             "down"
@@ -1452,7 +1455,9 @@ impl ShareHandler {
 
                         let worker = v.worker_name.lock().clone();
 
-                        let spm_tgt = format!("{:>4.1}/{:<4.1}", spm, *target_spm);
+                        // Solo mining has no vardiff target: show only the observed share rate.
+                        let spm_tgt =
+                            if solo { format!("{:>4.1}/-   ", spm) } else { format!("{:>4.1}/{:<4.1}", spm, *target_spm) };
 
                         // For individual workers, "Blocks" and "Total" are the same (they're currently online)
                         let line = format!(
@@ -1460,7 +1465,7 @@ impl ShareHandler {
                             trunc(&worker, WORKER_W),
                             inst_short,
                             format_hashrate(rate),
-                            min_diff.round() as u64,
+                            format_diff(min_diff),
                             spm_tgt,
                             trend,
                             format!("{}/{}/{}", shares, stales, invalids),
@@ -1494,7 +1499,7 @@ impl ShareHandler {
                 let vdaa = node_status.virtual_daa_score.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
                 let blocks = node_status.block_count.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
                 let headers = node_status.header_count.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-                let diff = node_status.difficulty.map(|d| format!("{:.2e}", d)).unwrap_or_else(|| "-".to_string());
+                let diff = node_status.difficulty.map(format_thousands).unwrap_or_else(|| "-".to_string());
                 let tip = node_status.tip_hash.as_deref().unwrap_or("-");
                 let mempool = node_status.mempool_size.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
 
@@ -1619,7 +1624,7 @@ impl ShareHandler {
                 }
 
                 let overall_spm = average_worker_spm(total_worker_spm, total_worker_count);
-                let total_spm_tgt = match total_target {
+                let total_spm_tgt = match total_target.filter(|_| !crate::client_handler::solo_mining()) {
                     Some(t) => format!("{:>4.1}/{:<4.1}", overall_spm, t),
                     None => format!("{:>4.1}/-", overall_spm),
                 };
@@ -1734,6 +1739,36 @@ impl ShareHandler {
     }
 }
 
+/// Stratum difficulty for the stats table: 2 decimals for normal values, more digits for
+/// the tiny vardiff values FishHash GPUs can get, no decimals for very large values.
+fn format_diff(diff: f64) -> String {
+    if !diff.is_finite() || diff <= 0.0 {
+        "-".to_string()
+    } else if diff >= 1000.0 {
+        format!("{:.0}", diff)
+    } else if diff >= 0.01 {
+        format!("{:.2}", diff)
+    } else {
+        format!("{:.6}", diff)
+    }
+}
+
+/// Network difficulty as a whole number with thousands separators (e.g. 4,203,567,890).
+fn format_thousands(value: f64) -> String {
+    if !value.is_finite() || value < 0.0 {
+        return "-".to_string();
+    }
+    let digits = format!("{:.0}", value);
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 fn format_hashrate(ghs: f64) -> String {
     if ghs < 1.0 {
         format!("{:.2}MH/s", ghs * 1000.0)
@@ -1809,5 +1844,25 @@ mod retention_tests {
 
         handler.get_create_stats(&ctx);
         assert_eq!(handler.stats.lock().len(), 1, "authorize/submit lifecycle may recreate stats");
+    }
+}
+
+#[cfg(test)]
+mod display_format_tests {
+    use super::{format_diff, format_thousands};
+
+    #[test]
+    fn network_difficulty_is_grouped() {
+        assert_eq!(format_thousands(4_203_567_890.4), "4,203,567,890");
+        assert_eq!(format_thousands(999.0), "999");
+        assert_eq!(format_thousands(1000.0), "1,000");
+    }
+
+    #[test]
+    fn stratum_difficulty_keeps_decimals() {
+        assert_eq!(format_diff(1.9571), "1.96");
+        assert_eq!(format_diff(0.000123), "0.000123");
+        assert_eq!(format_diff(16384.0), "16384");
+        assert_eq!(format_diff(0.0), "-");
     }
 }

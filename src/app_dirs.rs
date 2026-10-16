@@ -17,6 +17,18 @@ pub(crate) fn get_bridge_app_dir() -> PathBuf {
     return get_home_dir().join(format!(".{}", BRIDGE_APP_FOLDER_NAME));
 }
 
+/// Directory for `bridge.log`: the folder that contains the executable (like the Go bridge),
+/// so logs sit next to the binary on Windows, Linux and HiveOS. Falls back to the per-user
+/// app directory when the executable's folder cannot be written.
 pub(crate) fn get_bridge_logs_dir() -> PathBuf {
-    get_bridge_app_dir().join("logs")
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        let probe = dir.join(".bridge-write-test");
+        if std::fs::write(&probe, b"").is_ok() {
+            let _ = std::fs::remove_file(&probe);
+            return dir;
+        }
+    }
+    let fallback = get_bridge_app_dir().join("logs");
+    let _ = std::fs::create_dir_all(&fallback);
+    fallback
 }

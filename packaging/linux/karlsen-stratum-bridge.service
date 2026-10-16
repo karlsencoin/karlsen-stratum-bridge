@@ -1,0 +1,20 @@
+# Example systemd unit for Ubuntu / Debian.
+# 1. Extract the release to /opt/karlsen-stratum-bridge
+# 2. sudo cp karlsen-stratum-bridge.service /etc/systemd/system/
+# 3. sudo systemctl daemon-reload && sudo systemctl enable --now karlsen-stratum-bridge
+# Logs: /opt/karlsen-stratum-bridge/bridge.log  or  journalctl -u karlsen-stratum-bridge -f
+[Unit]
+Description=Karlsen Stratum Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/karlsen-stratum-bridge
+ExecStart=/opt/karlsen-stratum-bridge/karlsen-stratum-bridge --config /opt/karlsen-stratum-bridge/config.yaml
+Restart=always
+RestartSec=5
+Environment=NO_COLOR=1
+
+[Install]
+WantedBy=multi-user.target
